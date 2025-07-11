@@ -21,3 +21,4 @@ const transport = new hl.HttpTransport({
 const infoClient = new hl.InfoClient({ transport });
 
 const openOrders = await infoClient.openOrders({ user: "0x..." });
+

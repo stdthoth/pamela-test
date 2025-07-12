@@ -1,24 +1,18 @@
-// i want to get hyperliquid data and use it to trade coin
-/**
- * So i want tot first get the simple moving average of the last 20 days
- * and then compare it to the current price of the coin
- * if the current price is above the simple moving average then i want to buy the coin
- * if the current price is below the simple moving average then i want to sell the coin.
- * Other features will include :
- * portifolio management
- * risk management
- * stop loss
- * take profit
- * trailing stop loss
- * 
- */
+import { Mastra } from "@mastra/core/mastra";
+import { PinoLogger } from "@mastra/loggers";
+import { weatherAgent } from "./mastra/agents/weather-agent/weather-agent"; // This can be deleted later
+import { weatherWorkflow } from "./mastra/agents/weather-agent/weather-workflow"; // This can be deleted later
+import { yourAgent } from "./mastra/agents/your-agent/your-agent"; // Build your agent here
 
-import * as hl from "@nktkas/hyperliquid";
-
-const transport = new hl.HttpTransport({
-    isTestnet: true
+export const mastra = new Mastra({
+	workflows: { weatherWorkflow }, // can be deleted later
+	agents: { weatherAgent, yourAgent },
+	logger: new PinoLogger({
+		name: "Mastra",
+		level: "info",
+	}),
+	server: {
+		port: 8080,
+		timeout: 10000,
+	},
 });
-const infoClient = new hl.InfoClient({ transport });
-
-const openOrders = await infoClient.openOrders({ user: "0x..." });
-

@@ -1,6 +1,8 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
+import * as hl from "@nktkas/hyperliquid";
 
+/*
 // Simple async function that conforms to input and output schema
 const getInfo = async (ctx: string) =>
   Promise.resolve({ bar: ctx.length, baz: "baz" });
@@ -20,211 +22,82 @@ export const yourTool = createTool({
     return await getInfo(context.foo);
   },
 });
+*/
 
 
-interface PriceData {
-    timestamp: string;
-    open: number;
-    high: number;
-    close: number;
-    volume: number;
+
+
+const transport = new hl.HttpTransport({
+    isTestnet: true
+});
+const infoClient = new hl.InfoClient({ transport });
+
+
+export const CheckOrders = createTool({
+    id: "check-orders",
+    description: "used to check open orders on hyperliquid",
+    inputSchema: z.object({
+        user: z.string().describe("user address to check open orders for")
+    }),
+    outputSchema: z.array(
+        z.object({
+                coin: z.string().describe("The coin used in the transaction"),
+                side: z.string().describe("price at which the order was placed"),
+                limitPrice: z.string().describe("Limit price of the order"),
+                size: z.string().describe("size of the order"),
+                orderId: z.number().describe("order Id of the order"),
+                timestamp: z.number().describe("timestamp of the order in milliseconds since epoch").nonnegative(),
+                originalSize: z.string().describe("original size of the order")
+        })),
+    execute: async ({context}) => {
+        return await getOrders(context.user);
+    } 
+})
+
+// this will execute trades on hyperliquid !!!!!
+export const TradeExecutor = createTool({
+    id: "buy-tool",
+    description: "used to execute trades on hyperliquid",
+    inputSchema: z.object({
+        currencyPair: z.string().describe("currency pair you want to trade, i.e ETH-USD"),
+        price: z.number().describe("bidding price").nonnegative(),
+        leverage: z.string().describe("leverage that you want to use for this trade, i.e 5x, 10x, 50x"),
+        stopLoss: z.number().describe(`"this is the stop loss price for the trade, 
+            it will typically get you out of a trade if you are 50% below your buying price"`),
+        takeProfit: z.number().describe(""),
+    }),
+    outputSchema: z.object({
+        result: z.object({
+            status: z.string().describe("status of the trade execution"),
+            price: z.number().describe("this id the price at which the trade was executed").nonnegative()
+        })
+    }),
+    
+});
+
+const executeTrade = async (pair: string, price: number, leverage: string,stopLoss: number, takeProfit: number) => {
+    
 }
 
-interface Signal {
-    timestamp: string;
-    type: 'BUY' | 'SELL' | 'HOLD';
-    price: number;
-    shortSMA: number;
-    longSMA: number;
-    strength: number;
+const getOrders = async (user: hl.Hex) => {
+    const orders = await infoClient.openOrders({
+        user: user,
+    });
+
+    return orders.map(order => ({
+        coin: order.coin,
+        side: order.side,
+        limitPrice: order.limitPx,
+        size: order.sz,
+        orderId: order.oid,
+        timestamp: order.timestamp,
+        originalSize: order.origSz
+    }));
+   
 }
-
-interface TradeResult {
-    entryTime: Date;
-    exitTime: Date;
-    entryPrice: number;
-    type: 'LONG' | 'SHORT';
-    pnl:  number;
-    pnlPercent: number;
-    duration: number; //in milliseconds
-}
-
-interface StrategyConfig {
-    shortPeriod: number;
-    longPeriod: number;
-    minSignalStrength: number;
-    stopLoss?:number;
-    takeProfit?: number;
-}
-
-class SimpleMovingAverage {
-    private values: number[] = []
-    private period: number = 0
-    private sum: number = 0;
-
-    constructor(period:number) {
-        this.period = period;
-    }
-    update(value:number): number | null {
-        this.values.push(value);
-        this.sum += value
-
-        if (this.values.length > this.period) {
-            this.sum -= this.values.shift()!;
-        }
-        return this.values.length >= this.period ? this.sum/ this.period:null
-    }
-
-    getCurrentValue(): number | null {
-        return this.values.length >= this.period ? this.sum/ this.period:null
-    }
-
-    reset(): void {
-        this.values = [];
-        this.sum = 0;
-    }
-    // calcuate SMA for historical data 
-    static calculate(data:number[], period: number):(number | null)[] {
-        const sma = new SimpleMovingAverage(period);
-        return data.map(value => sma.update(value));
-    }
-
-}
-
-class SMAStrategy {
-    private config: StrategyConfig;
-    private shortSMA: SimpleMovingAverage;
-    private longSMA: SimpleMovingAverage;
-    private signals: Signal[] =[];
-    private lastSignal: Signal | null = null;
-    private priceHistory: PriceData[] = [];
-
-    constructor(config: StrategyConfig) {
-        this.config = config;
-        this.shortSMA = new SimpleMovingAverage(config.shortPeriod);
-        this.longSMA = new SimpleMovingAverage(config.longPeriod);
-    }
-
-    update(priceData: PriceData): Signal {
-        this.priceHistory.push(priceData);
-
-        const shortValue = this.shortSMA.update(priceData.close)
-        const longValue = this.longSMA.update(priceData.close)
-
-        let signal: Signal = {
-            timestamp: priceData.timestamp,
-            type: 'HOLD',
-            price: priceData.close,
-            shortSMA: shortValue || 0,
-            longSMA: longValue || 0,
-            strength: 0,
-        };
+/*export const RiskManager = async() => {
+    
+}*/
 
 
-        // generate signal only if both SMAs are available 
-        if (shortValue !== null && longValue !== null) {
-            const prevShort = this.getPreviousSMA('SHORT');
-            const prevLong = this.getPreviousSMA('LONG');
-
-            if(prevShort !== null && prevLong !== null) {
-                signal = this.generateSignal(priceData,shortValue,longValue,prevShort,prevLong);
-            }
-        }
-
-        this.signals.push(signal);
-        this.lastSignal = signal;
-        return signal
-    }
-
-    private generateSignal(
-        priceData: PriceData,
-        shortSMA:number,
-        longSMA: number,
-        prevShortSMA: number,
-        prevLongSMA: number,
-    ): Signal {
-        const currentCross = shortSMA > longSMA;
-        const previousCross = prevShortSMA > prevLongSMA;
-
-        let type: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
-        let strength = 0
-
-        if (currentCross && !previousCross) {
-            type = 'BUY'
-            strength = this.calculateSignalStrength(shortSMA,longSMA,'BUY');    
-        } else if (!currentCross && previousCross) {
-            type = 'SELL'
-            strength = this.calculateSignalStrength(shortSMA,longSMA,'SELL'); 
-        }
-
-        return {
-            timestamp: priceData.timestamp,
-            type,
-            price: priceData.close,
-            shortSMA,
-            longSMA,
-            strength
-        };
-    }
-
-    private calculateSignalStrength(
-        shortSMA: number,
-        longSMA: number,
-        signalType: 'BUY' | 'SELL'
-    ):number {
-        const spread = Math.abs( shortSMA- longSMA);
-        const avgPrice = (shortSMA + longSMA)/ 2;
-        const spreadPercent = (spread/avgPrice) * 100;
-
-        //normalize strength between 0 and 1
-        // Higher spread = stronger signal
-
-        const maxSpread = 5; //5% spread = max strength
-        return Math.min(spreadPercent / maxSpread,1)
-    }
-
-    private getPreviousSMA(type: 'SHORT' | 'LONG'): number | null {
-        if (this.signals.length < 2){
-            return null;
-        }
-
-        const prevSignal = this.signals[this.signals.length - 2];
-        return type === 'SHORT' ? prevSignal.shortSMA: prevSignal.longSMA;
-    }
-
-    // backtest
-
-    //pnl drawdown and other statistics
-
-    getCurrentSignal(): Signal | null {
-        return this.lastSignal;
-    }
-
-    getAllSignals(): Signal[] {
-        return this.signals;
-    }
-
-    reset(): void {
-        this.shortSMA.reset();
-        this.longSMA.reset();
-        this.signals = [];
-        this.lastSignal = null;
-        this.priceHistory = [];
-    }
-
-
-    getConfig(): StrategyConfig {
-        return {... this.config };
-    }
-
-    updateConfig(newConfig: Partial<StrategyConfig>): void {
-        this.config = {...this.config, ...newConfig};
-        this.shortSMA = new SimpleMovingAverage(this.config.shortPeriod);
-        this.longSMA = new SimpleMovingAverage(this.config.longPeriod);
-    }
-
-
-
-
-}
 

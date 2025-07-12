@@ -1,10 +1,11 @@
 import { Agent } from "@mastra/core/agent";
-import { yourTool } from "../your-agent/your-tool";
+import { CheckOrders } from "../your-agent/your-tool";
 import { createVertex} from "@ai-sdk/google-vertex"
 import { email, privateKey } from "../config";
 
+
 // Define Agent Name
-const name = "Your Agent";
+const name = "Pamela";
 
 
 const vertex = createVertex({
@@ -38,5 +39,5 @@ export const yourAgent = new Agent({
 	name,
 	instructions,
 	model,
-	tools: { yourTool },
+	tools: { CheckOrders },
 });

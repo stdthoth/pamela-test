@@ -4,6 +4,7 @@ import * as hl from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 import { privateKey } from "../config";
 import { size } from "viem";
+import { calculateVWAP } from "../../../utils/strategies/vwap";
 
 /*
 // Simple async function that conforms to input and output schema
@@ -27,27 +28,27 @@ export const yourTool = createTool({
 });
 */
 
-interface OrderResponse {
-    status: "ok";
-    response: {
-        type: "order";
-        data: {
-            statuses: Array<{
-                resting?: {
-                    oid: number;
-                    cloid?: string;
-                };
-                filled?: {
-                    totalSz: string;
-                    avgPx: string;
-                    oid: number;
-                    cloid?: string;
-                };
-                error?: string;
-            }>;
-        };
-    };
-}
+// interface OrderResponse {
+//     status: "ok";
+//     response: {
+//         type: "order";
+//         data: {
+//             statuses: Array<{
+//                 resting?: {
+//                     oid: number;
+//                     cloid?: string;
+//                 };
+//                 filled?: {
+//                     totalSz: string;
+//                     avgPx: string;
+//                     oid: number;
+//                     cloid?: string;
+//                 };
+//                 error?: string;
+//             }>;
+//         };
+//     };
+// }
 
 const getCoinByAssetID = (coin: string): number => {
     const fooling: Record<number, string> = {
@@ -122,6 +123,24 @@ export const TradeExecutor = createTool({
         return await executeTrade(context.asset, context.price,context.size)
     }
 });
+
+export const VWAPTool = createTool({
+    id: "vwap-tool",
+    description:"used to cslculate the VWAP of a coin",
+    inputSchema: z.object({
+        coin: z.string().describe("coin to calculate VWAP for")
+    }),
+    outputSchema: z.object({
+        timestamp: z.number().describe("timestamp of the VWAP in milliseconds"),
+        vwap: z.number().describe("VWAP value"),
+        cumulativeVolume: z.number().describe("cumulative volume traded"),
+        typicalPrice: z.number().describe("typical price of the last candle")
+    }),
+
+    execute: async ({context}) => {
+        return await calculateVWAP(context.coin);
+    }
+})
 
 // vault works
 

@@ -1,6 +1,9 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import * as hl from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+import { privateKey } from "../config";
+import { size } from "viem";
 
 /*
 // Simple async function that conforms to input and output schema
@@ -24,13 +27,47 @@ export const yourTool = createTool({
 });
 */
 
+interface OrderResponse {
+    status: "ok";
+    response: {
+        type: "order";
+        data: {
+            statuses: Array<{
+                resting?: {
+                    oid: number;
+                    cloid?: string;
+                };
+                filled?: {
+                    totalSz: string;
+                    avgPx: string;
+                    oid: number;
+                    cloid?: string;
+                };
+                error?: string;
+            }>;
+        };
+    };
+}
+
+const getCoinByAssetID = (coin: string): number => {
+    const fooling: Record<number, string> = {
+        0:"BTC",
+        1:"ETH",
+        5:"SOL",
+    }
+    return Object.keys(fooling).find(key => fooling[key] === coin) as unknown as number;
+}
 
 
 
-const transport = new hl.HttpTransport({
-    isTestnet: true
+
+
+const transport = new hl.WebSocketTransport({
+    url:"wss://api.hyperliquid-testnet.xyz/ws",
 });
 const infoClient = new hl.InfoClient({ transport });
+const wallet = privateKeyToAccount(privateKey)
+const exchangeClient = new hl.ExchangeClient({wallet:wallet, transport})
 
 
 export const CheckOrders = createTool({
@@ -59,24 +96,85 @@ export const TradeExecutor = createTool({
     id: "buy-tool",
     description: "used to execute trades on hyperliquid",
     inputSchema: z.object({
-        currencyPair: z.string().describe("currency pair you want to trade, i.e ETH-USD"),
-        price: z.number().describe("bidding price").nonnegative(),
-        leverage: z.string().describe("leverage that you want to use for this trade, i.e 5x, 10x, 50x"),
-        stopLoss: z.number().describe(`"this is the stop loss price for the trade, 
-            it will typically get you out of a trade if you are 50% below your buying price"`),
-        takeProfit: z.number().describe(""),
+        asset: z.string().describe("assetID you want to trade, i.e BTC,ETH, e.t.c "),
+        price: z.string().describe("bidding price"),
+        size: z.string().describe("size of the order, i.e 0.1 stands for 10% of current margin")
     }),
     outputSchema: z.object({
-        result: z.object({
-            status: z.string().describe("status of the trade execution"),
-            price: z.number().describe("this id the price at which the trade was executed").nonnegative()
-        })
+        status: z.string().describe("status of the order, i.e ok, err"),
+        data: z.object({
+            resting: z.object({
+                oid: z.number().describe("order ID"),
+                cloid: z.string().optional().describe("client order ID")
+            }).optional(),
+            filled: z.object({
+                totalSz: z.string().describe("total size filled"),
+                avgPx: z.string().describe("average price of fill"),
+                oid: z.number().describe("order ID"),
+                cloid: z.string().optional().describe("client order ID")
+            }).optional(),
+            error: z.string().optional()
+        }),
+        type: z.string().describe("type of the response, i.e order")
     }),
     
+    execute: async ({context}) => {
+        return await executeTrade(context.asset, context.price,context.size)
+    }
 });
 
-const executeTrade = async (pair: string, price: number, leverage: string,stopLoss: number, takeProfit: number) => {
-    
+// vault works
+
+// Perps to spot transfer
+
+// maybe launch shit 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const executeTrade = async (asset: string, price: string, size: string) => {
+    const createOrder = await exchangeClient.order({
+        orders:[{
+            a: getCoinByAssetID(asset),
+            b: true,
+            p: price,
+            s: size,
+            r: false,
+            t: {
+                limit:{
+                    tif:"Gtc"
+                }
+            }
+
+        }],
+        grouping: "na",
+    })
+
+    return {
+        status: createOrder.status,
+        data: createOrder.response.data.statuses[0],
+        type: createOrder.response.type,
+    }
+}
+const cancelOrder = async () => {
+
 }
 
 const getOrders = async (user: hl.Hex) => {
